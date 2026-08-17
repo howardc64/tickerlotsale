@@ -6,6 +6,12 @@ Saleprice = make input field to enter sales price
 
 Prompt user to enter Ticker Symbol
 Prompt user to enter PDF file containing ticker lots
+	allow user to enter multiple PDF files
+	display all entered PDF file names
+
+User entered Ticker Symbol
+	if entered blank, then display all lots
+	if entered Symbol not matching any lot, alert no match
 
 Scan PDF file for Ticker lot, for each lot
 	mark long term or short term
@@ -15,7 +21,7 @@ Scan PDF file for Ticker lot, for each lot
 Sum total long term and short term sales
 
 For long term sales
-	show Federal tax liability @ highest bracket, likely NIIT, medicare surcharge
+	show Federal tax liability @ highest bracket and likely NIIT
 	show WA tax liability factoring CG exemption
 	show NYS + NYC tax liability at highest bracket
 

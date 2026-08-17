@@ -96,6 +96,21 @@
   }
   .field .dollar-wrap{display:flex;align-items:center;gap:6px;}
   .field .dollar-wrap .dollar{font-family:var(--mono);font-size:1rem;}
+  .filelist{
+    margin-top:8px;
+    font-family:var(--mono);
+    font-size:0.72rem;
+    color:#4b4636;
+    line-height:1.6;
+  }
+  .filelist .fname{
+    display:inline-block;
+    background:#eee9dc;
+    border:1px solid #b9b2a0;
+    border-radius:2px;
+    padding:2px 7px;
+    margin:2px 5px 2px 0;
+  }
 
   .scan-row{
     display:flex;
@@ -156,7 +171,7 @@
     border-bottom:2px solid var(--ink);
     font-weight:500;
   }
-  thead th:first-child, thead th:nth-child(2){text-align:left;}
+  thead th:nth-child(-n+3){text-align:left;}
   tbody td{
     padding:8px 10px;
     text-align:right;
@@ -165,7 +180,7 @@
     border-bottom:1px solid var(--rule);
     white-space:nowrap;
   }
-  tbody td:first-child{text-align:left;}
+  tbody td:nth-child(-n+3){text-align:left;}
   tbody tr:hover{background:#fbfaf6;}
 
   .badge{
@@ -185,6 +200,16 @@
     width:130px;
     font-family:var(--mono);
     font-size:0.82rem;
+    padding:5px 6px;
+    border:1px solid #b9b2a0;
+    border-radius:2px;
+    background:#fffdf8;
+  }
+  input.tickerCell{
+    width:74px;
+    font-family:var(--mono);
+    font-size:0.82rem;
+    text-transform:uppercase;
     padding:5px 6px;
     border:1px solid #b9b2a0;
     border-radius:2px;
@@ -373,17 +398,17 @@
 
   <header>
     <div>
-      <div class="ticker" id="tickerLabel">TICKER &mdash;</div>
+      <div class="ticker" id="tickerLabel">ALL TICKERS &mdash;</div>
       <h1>Lot Sale Calculator</h1>
     </div>
-    <div class="meta">Sell date: <b id="sellDate">&mdash;</b><br>Enter lots manually or scan a statement PDF</div>
+    <div class="meta">Sell date: <b id="sellDate">&mdash;</b><br>Select one or more PDFs; leave ticker blank to show every lot</div>
   </header>
 
   <div class="setup">
     <div class="setup-grid">
       <div class="field">
         <label for="tickerInput">Ticker symbol</label>
-        <input type="text" id="tickerInput" placeholder="e.g. PLTR" autocomplete="off">
+        <input type="text" id="tickerInput" placeholder="e.g. PLTR &mdash; leave blank for all" autocomplete="off">
       </div>
       <div class="field">
         <label for="saleprice">Sale price</label>
@@ -393,12 +418,13 @@
         </div>
       </div>
       <div class="field">
-        <label for="pdfInput">Statement PDF (contains lots for this ticker)</label>
-        <input type="file" id="pdfInput" accept="application/pdf">
+        <label for="pdfInput">Statement PDF(s) &mdash; can select more than one</label>
+        <input type="file" id="pdfInput" accept="application/pdf" multiple>
+        <div class="filelist" id="pdfFileList"></div>
       </div>
     </div>
     <div class="scan-row">
-      <button class="primary" id="scanBtn">Scan PDF for lots</button>
+      <button class="primary" id="scanBtn">Scan PDF(s) for lots</button>
       <button class="secondary" id="addRowBtn">+ Add lot manually</button>
       <span class="status" id="scanStatus"></span>
     </div>
@@ -407,6 +433,7 @@
   <table>
     <thead>
       <tr>
+        <th>Ticker</th>
         <th>Acquired</th>
         <th>Term</th>
         <th>Shares held</th>
@@ -419,7 +446,7 @@
     </thead>
     <tbody id="lotBody"></tbody>
   </table>
-  <div id="emptyHint" class="empty-hint">No lots yet &mdash; scan a PDF or add a lot manually.</div>
+  <div id="emptyHint" class="empty-hint">No lots yet &mdash; scan one or more PDFs (leave ticker blank for every lot) or add a lot manually.</div>
 
   <div class="addrow-row"></div>
 
@@ -442,19 +469,21 @@
     <div class="tax-section">
 
       <div class="tax-card">
-        <h2>Federal &mdash; long-term gains @ 24%</h2>
+        <h2>Federal &mdash; highest LTCG bracket + NIIT</h2>
         <div class="tax-grid">
           <div class="tax-figure">
             <div class="lbl">Long-term gain</div>
             <div class="amt" id="taxLtGain">$0.00</div>
           </div>
-          <div class="tax-figure">
-            <div class="lbl">Tax @ 24%</div>
+          <div class="tax-subline"><span>20% top LTCG rate</span><span id="fedLtcgTax">$0.00</span></div>
+          <div class="tax-subline"><span>+3.8% NIIT (Medicare surcharge)</span><span id="fedNiitTax">$0.00</span></div>
+          <div class="tax-figure" style="margin-top:2px;">
+            <div class="lbl">Combined 23.8%</div>
             <div class="amt" id="taxLiability">$0.00</div>
           </div>
         </div>
         <div class="tax-note">
-          24% is a flat placeholder, not the real LTCG bracket (0/15/20%, +3.8% NIIT if applicable). Gains only &mdash; net loss shows $0.
+          20% is the top federal LTCG bracket (applies above roughly $583k taxable income for single filers, 2024 figures &mdash; confirm current thresholds); 3.8% is the Net Investment Income Tax, sometimes called the Medicare surcharge, which applies above $200k/$250k MAGI (single/joint). Shown at the top combined rate only &mdash; your actual rate may be lower (0/15/20%) if this gain doesn't push you into the top bracket. Gains only &mdash; net loss shows $0.
         </div>
       </div>
 
@@ -548,7 +577,7 @@ const tickerLabel = document.getElementById('tickerLabel');
 
 tickerInput.addEventListener('input', () => {
   const t = tickerInput.value.trim().toUpperCase();
-  tickerLabel.textContent = t ? (t + ' \u00B7 Lot Sale Calculator') : 'TICKER \u2014';
+  tickerLabel.textContent = t ? (t + ' \u00B7 Lot Sale Calculator') : 'ALL TICKERS \u00B7 Lot Sale Calculator';
 });
 
 function refreshEmptyHint(){
@@ -557,8 +586,10 @@ function refreshEmptyHint(){
 
 function addRow(lot){
   lot = lot || {};
+  const defaultTicker = lot.ticker || tickerInput.value.trim().toUpperCase() || '';
   const tr = document.createElement('tr');
   tr.innerHTML = `
+    <td><input type="text" class="tickerCell" value="${defaultTicker}"></td>
     <td><input type="date" class="acquired" value="${lot.acquired || ''}"></td>
     <td><span class="badge ST">Short-term</span></td>
     <td><input type="number" class="sharesHeld" min="0" step="any" value="${lot.shares ?? 0}"></td>
@@ -657,9 +688,16 @@ function recalc(){
 
   const taxableLtGain = Math.max(0, ltGain);
 
-  // --- Federal (flat 24% placeholder) ---
-  const fedTax = taxableLtGain * 0.24;
+  // --- Federal: top LTCG bracket (20%) + Net Investment Income Tax /
+  // "Medicare surcharge" (3.8%), shown at the top combined rate only ---
+  const FED_LTCG_TOP_RATE = 0.20;
+  const FED_NIIT_RATE = 0.038;
+  const fedLtcgTax = taxableLtGain * FED_LTCG_TOP_RATE;
+  const fedNiitTax = taxableLtGain * FED_NIIT_RATE;
+  const fedTax = fedLtcgTax + fedNiitTax;
   document.getElementById('taxLtGain').textContent = fmtMoney(taxableLtGain);
+  document.getElementById('fedLtcgTax').textContent = fmtMoney(fedLtcgTax);
+  document.getElementById('fedNiitTax').textContent = fmtMoney(fedNiitTax);
   document.getElementById('taxLiability').textContent = fmtMoney(fedTax);
 
   // --- Washington capital gains excise tax ---
@@ -741,7 +779,10 @@ function toIsoDate(dateStr){
 function dedupeLots(lots){
   const seen = new Set();
   return lots.filter(l => {
-    const key = `${l.acquired}|${l.shares}|${l.cost}`;
+    // Include ticker in the key so that, when scanning for every ticker at
+    // once, two different symbols that happen to share the same acquired
+    // date/shares/cost aren't collapsed into a single lot.
+    const key = `${l.ticker || ''}|${l.acquired}|${l.shares}|${l.cost}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -789,6 +830,10 @@ function parseBrokerTableLots(fullText, ticker){
     lines.push(rawLines[i]);
   }
 
+  // Blank ticker means "show every lot in the statement" rather than filtering
+  // to one symbol.
+  const wantAll = wantTicker === '';
+
   let currentTicker = null;
   const lots = [];
 
@@ -800,7 +845,8 @@ function parseBrokerTableLots(fullText, ticker){
     }
     const d = line.match(dateRowRe);
     if (!d) return;
-    if (currentTicker !== wantTicker) return;
+    if (!currentTicker) return;
+    if (!wantAll && currentTicker !== wantTicker) return;
 
     const [, mm, dd, yyyy, wsFlag, rest] = d;
     const tokens = rest.trim().split(/\s+/).filter(Boolean);
@@ -811,6 +857,7 @@ function parseBrokerTableLots(fullText, ticker){
     if (isNaN(shares) || isNaN(cost) || shares <= 0 || cost < 0) return;
 
     lots.push({
+      ticker: currentTicker,
       acquired: `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`,
       shares: shares,
       cost: cost,
@@ -847,6 +894,9 @@ function parseFidelityLots(fullText, ticker){
   const tickerLineRe = /^[A-Z][A-Z0-9]{0,5}$/;
   const dateLineRe = /^([A-Za-z]{3})-(\d{2})-(\d{4})$/;
   const wantTicker = ticker.trim().toUpperCase();
+  // Blank ticker means "show every lot in the statement" rather than filtering
+  // to one symbol.
+  const wantAll = wantTicker === '';
 
   let currentTicker = null;
   const lots = [];
@@ -866,7 +916,7 @@ function parseFidelityLots(fullText, ticker){
     const tm = next.match(/^(Long|Short)\s+(.*)$/i);
     if (!tm) continue;
 
-    if (currentTicker === wantTicker){
+    if (currentTicker && (wantAll || currentTicker === wantTicker)){
       const tokens = tm[2].trim().split(/\s+/).filter(Boolean);
       // tokens: $gain, %gain, currentValue$, quantity, avgCost$, costBasisTotal$
       if (tokens.length >= 5){
@@ -875,6 +925,7 @@ function parseFidelityLots(fullText, ticker){
         const mon = MONTHS[dm[1].toLowerCase()];
         if (mon && !isNaN(shares) && !isNaN(cost) && shares > 0 && cost >= 0){
           lots.push({
+            ticker: currentTicker,
             acquired: `${dm[3]}-${mon}-${dm[2].padStart(2,'0')}`,
             shares: shares,
             cost: cost,
@@ -892,7 +943,12 @@ function parseFidelityLots(fullText, ticker){
 function parseLotsFromText(fullText, ticker){
   const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
   const dateRe = /(\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2})/;
+  const wantAll = !ticker;
   const tickerRe = ticker ? new RegExp('\\b' + ticker.replace(/[^A-Za-z0-9.]/g,'') + '\\b', 'i') : null;
+  // Best-effort ticker guess for display when scanning for every symbol at
+  // once: an all-caps 1-6 char token on the line that isn't a unit/keyword.
+  const guessTickerRe = /\b([A-Z]{1,6})\b/;
+  const NOT_TICKERS = new Set(['WS','LT','ST','LONG','SHORT','QTY']);
 
   const candidateLines = [];
   lines.forEach(line => {
@@ -904,12 +960,14 @@ function parseLotsFromText(fullText, ticker){
     candidateLines.push({ line, dateStr: dm[1], hasTicker: tickerRe ? tickerRe.test(line) : false });
   });
 
-  let relaxed = false;
-  let rows = tickerRe ? candidateLines.filter(c => c.hasTicker) : candidateLines;
-  if (tickerRe && rows.length === 0){
-    relaxed = true;
-    rows = candidateLines;
-  }
+  // If a specific ticker was requested, only ever return lines that actually
+  // contain it. We deliberately do NOT fall back to guessing at every
+  // dateful row when the ticker isn't found — that produced garbage matches
+  // (especially once multiple PDFs can be scanned together, where a ticker
+  // legitimately absent from one file would grab unrelated rows from it).
+  // A caller-level fallback shows every ticker's lots instead when nothing
+  // matches, which is a much cleaner result than a guessed, mislabeled list.
+  const rows = wantAll ? candidateLines : candidateLines.filter(c => c.hasTicker);
 
   const lots = [];
   rows.forEach(({line, dateStr}) => {
@@ -942,69 +1000,124 @@ function parseLotsFromText(fullText, ticker){
     if (shares === null || cost === null || shares <= 0) return;
 
     const isWashSale = /wash\s*sale|\bws\b/i.test(line);
-    lots.push({ acquired: iso, shares: shares, cost: cost, ws: isWashSale });
+
+    let lotTicker = ticker ? ticker.trim().toUpperCase() : '';
+    if (!lotTicker){
+      const g = lineNoDate.match(guessTickerRe);
+      if (g && !NOT_TICKERS.has(g[1])) lotTicker = g[1];
+    }
+
+    lots.push({ ticker: lotTicker, acquired: iso, shares: shares, cost: cost, ws: isWashSale });
   });
 
-  return { lots: dedupeLots(lots), relaxed };
+  return { lots: dedupeLots(lots), relaxed: false };
 }
 
 const scanBtn = document.getElementById('scanBtn');
 const scanStatus = document.getElementById('scanStatus');
 const pdfInput = document.getElementById('pdfInput');
+const pdfFileList = document.getElementById('pdfFileList');
 
-scanBtn.addEventListener('click', async () => {
-  const file = pdfInput.files[0];
-  const ticker = tickerInput.value.trim();
+function escapeHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 
-  if (!file){
-    scanStatus.textContent = 'Choose a PDF file first.';
-    scanStatus.className = 'status err';
+pdfInput.addEventListener('change', () => {
+  const files = Array.from(pdfInput.files || []);
+  if (files.length === 0){
+    pdfFileList.innerHTML = '';
     return;
   }
-  if (!ticker){
-    scanStatus.textContent = 'Enter a ticker symbol first.';
+  pdfFileList.innerHTML = files
+    .map(f => `<span class="fname">${escapeHtml(f.name)}</span>`)
+    .join('');
+});
+
+// Runs the same three-stage parser chain (dedicated E*TRADE parser, then
+// dedicated Fidelity parser, then the generic best-effort fallback) against
+// one PDF's extracted text for one requested ticker (blank = every ticker).
+function scanTextForLots(text, ticker){
+  let lots = parseBrokerTableLots(text, ticker);
+  if (lots.length === 0) lots = parseFidelityLots(text, ticker);
+  if (lots.length === 0){
+    lots = parseLotsFromText(text, ticker).lots;
+  }
+  return lots;
+}
+
+// Extracts text from every selected PDF and runs scanTextForLots against
+// each one separately (never across a merged blob), so a symbol header in
+// one statement can never bleed into another statement's lots. Results are
+// merged and de-duplicated afterward.
+async function scanFilesForLots(files, ticker){
+  let lots = [];
+  let sawTickerHeader = false;
+  const tickerRe = ticker ? new RegExp('^' + ticker.replace(/[^A-Za-z0-9.]/g,'') + '\\b', 'im') : null;
+  for (const file of files){
+    const text = await extractPdfText(file);
+    lots = lots.concat(scanTextForLots(text, ticker));
+    if (tickerRe && tickerRe.test(text)) sawTickerHeader = true;
+  }
+  return { lots: dedupeLots(lots), sawTickerHeader };
+}
+
+scanBtn.addEventListener('click', async () => {
+  const files = Array.from(pdfInput.files || []);
+  const ticker = tickerInput.value.trim(); // blank = every ticker in every PDF
+  const wantAll = ticker === '';
+
+  if (files.length === 0){
+    scanStatus.textContent = 'Choose at least one PDF file first.';
     scanStatus.className = 'status err';
     return;
   }
 
   scanBtn.disabled = true;
-  scanStatus.textContent = 'Reading PDF\u2026';
+  scanStatus.textContent = files.length === 1 ? 'Reading PDF\u2026' : `Reading ${files.length} PDFs\u2026`;
   scanStatus.className = 'status';
 
   try {
-    const text = await extractPdfText(file);
+    let { lots, sawTickerHeader } = await scanFilesForLots(files, ticker);
+    const fileWord = files.length === 1 ? 'PDF' : `${files.length} PDFs`;
 
-    // Try dedicated parsers for known statement layouts first (E*TRADE-style
-    // positions table, then Fidelity-style positions report), since both
-    // understand fixed column meaning and don't need the ticker on every row.
-    let lots = parseBrokerTableLots(text, ticker);
-    if (lots.length === 0) lots = parseFidelityLots(text, ticker);
-
-    let relaxed = false;
-    let sawTickerHeader = new RegExp('^' + ticker.trim().replace(/[^A-Za-z0-9.]/g,'') + '\\b', 'im').test(text);
-
-    if (lots.length === 0){
-      const fallback = parseLotsFromText(text, ticker);
-      lots = fallback.lots;
-      relaxed = fallback.relaxed;
+    let fellBackToAll = false;
+    if (!wantAll && lots.length === 0){
+      // Requested ticker matched nothing anywhere: alert the user, then fall
+      // back to showing every lot found in every PDF rather than an empty
+      // table.
+      window.alert(`No match for "${ticker.toUpperCase()}" in ${fileWord}. Showing all lots instead.`);
+      const allResult = await scanFilesForLots(files, '');
+      lots = allResult.lots;
+      fellBackToAll = true;
     }
 
     if (lots.length === 0){
-      scanStatus.textContent = sawTickerHeader
-        ? `Found ${ticker.toUpperCase()} in this PDF, but no per-lot rows underneath it \u2014 this position may be shown as a single aggregate line rather than expanded lots. Add lots manually below.`
-        : `No lot rows found for ${ticker.toUpperCase()} in this PDF. Add lots manually below.`;
+      // Truly nothing extractable, even across every ticker.
+      tbody.innerHTML = '';
+      refreshEmptyHint();
+      scanStatus.textContent = `No lot rows found anywhere in ${fileWord}. Add lots manually below.`;
       scanStatus.className = 'status err';
     } else {
       tbody.innerHTML = '';
       lots.forEach(lot => addRow(lot));
-      scanStatus.textContent = relaxed
-        ? `Found ${lots.length} lot${lots.length===1?'':'s'} (couldn't confirm ${ticker.toUpperCase()} per-row \u2014 verify these belong to the right ticker).`
-        : `Found ${lots.length} lot${lots.length===1?'':'s'} for ${ticker.toUpperCase()}. Review extracted values before selling \u2014 parsing is best-effort.`;
-      scanStatus.className = 'status ok';
+      const tickerCount = new Set(lots.map(l => l.ticker).filter(Boolean)).size;
+
+      if (fellBackToAll){
+        scanStatus.textContent = sawTickerHeader
+          ? `Found ${ticker.toUpperCase()} in ${fileWord}, but no per-lot rows underneath it \u2014 showing every lot from ${fileWord} instead (${lots.length} across ${tickerCount} ticker${tickerCount===1?'':'s'}). This position may be shown as a single aggregate line rather than expanded lots.`
+          : `No lots matched ${ticker.toUpperCase()} in ${fileWord} \u2014 showing every lot instead (${lots.length} across ${tickerCount} ticker${tickerCount===1?'':'s'}).`;
+        scanStatus.className = 'status err';
+      } else if (wantAll){
+        scanStatus.textContent = `Found ${lots.length} lot${lots.length===1?'':'s'} across ${tickerCount} ticker${tickerCount===1?'':'s'} in ${fileWord}. Review extracted values before selling \u2014 parsing is best-effort.`;
+        scanStatus.className = 'status ok';
+      } else {
+        scanStatus.textContent = `Found ${lots.length} lot${lots.length===1?'':'s'} for ${ticker.toUpperCase()} in ${fileWord}. Review extracted values before selling \u2014 parsing is best-effort.`;
+        scanStatus.className = 'status ok';
+      }
     }
   } catch (err){
     console.error(err);
-    scanStatus.textContent = 'Could not read that PDF. Add lots manually below.';
+    scanStatus.textContent = 'Could not read one or more of those PDFs. Add lots manually below.';
     scanStatus.className = 'status err';
   } finally {
     scanBtn.disabled = false;
