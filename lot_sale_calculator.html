@@ -401,7 +401,7 @@
       <div class="ticker" id="tickerLabel">ALL TICKERS &mdash;</div>
       <h1>Lot Sale Calculator</h1>
     </div>
-    <div class="meta">Sell date: <b id="sellDate">&mdash;</b><br>Select one or more PDFs; leave ticker blank to show every lot</div>
+    <div class="meta">Sell date: <b id="sellDate">&mdash;</b><br>Select one or more PDFs (every ticker gets scanned); use the ticker box to filter the view</div>
   </header>
 
   <div class="setup">
@@ -426,6 +426,9 @@
     <div class="scan-row">
       <button class="primary" id="scanBtn">Scan PDF(s) for lots</button>
       <button class="secondary" id="addRowBtn">+ Add lot manually</button>
+      <button class="secondary" id="saveBtn">&#8595; Save lot list&hellip;</button>
+      <button class="secondary" id="restoreBtn">&#8593; Restore lot list&hellip;</button>
+      <input type="file" id="restoreInput" accept="application/json" style="display:none">
       <span class="status" id="scanStatus"></span>
     </div>
   </div>
@@ -446,7 +449,7 @@
     </thead>
     <tbody id="lotBody"></tbody>
   </table>
-  <div id="emptyHint" class="empty-hint">No lots yet &mdash; scan one or more PDFs (leave ticker blank for every lot) or add a lot manually.</div>
+  <div id="emptyHint" class="empty-hint">No lots yet &mdash; scan one or more PDFs or add a lot manually.</div>
 
   <div class="addrow-row"></div>
 
@@ -578,10 +581,37 @@ const tickerLabel = document.getElementById('tickerLabel');
 tickerInput.addEventListener('input', () => {
   const t = tickerInput.value.trim().toUpperCase();
   tickerLabel.textContent = t ? (t + ' \u00B7 Lot Sale Calculator') : 'ALL TICKERS \u00B7 Lot Sale Calculator';
+  refreshEmptyHint();
+  recalc();
 });
 
+// Shows/hides rows to match the ticker box (blank = show everything) without
+// ever removing a row from the DOM. This is what lets Save capture the full
+// underlying lot list — rows for other tickers stay put, just hidden.
+function filterRowsByTicker(){
+  const t = tickerInput.value.trim().toUpperCase();
+  let anyRow = false, anyVisible = false;
+  document.querySelectorAll('#lotBody tr').forEach(tr => {
+    anyRow = true;
+    const rowTicker = tr.querySelector('.tickerCell').value.trim().toUpperCase();
+    const match = !t || rowTicker === t;
+    tr.style.display = match ? '' : 'none';
+    if (match) anyVisible = true;
+  });
+  return { anyRow, anyVisible, t };
+}
+
 function refreshEmptyHint(){
-  emptyHint.style.display = tbody.children.length ? 'none' : 'block';
+  const { anyRow, anyVisible, t } = filterRowsByTicker();
+  if (!anyRow){
+    emptyHint.textContent = 'No lots yet \u2014 scan one or more PDFs or add a lot manually.';
+    emptyHint.style.display = 'block';
+  } else if (!anyVisible){
+    emptyHint.textContent = `No lots for ${t} in the loaded data \u2014 other tickers are hidden, not deleted. Clear the ticker box to see everything.`;
+    emptyHint.style.display = 'block';
+  } else {
+    emptyHint.style.display = 'none';
+  }
 }
 
 function addRow(lot){
@@ -609,6 +639,7 @@ function addRow(lot){
 
 tbody.addEventListener('input', (e) => {
   if (e.target.matches('.shares, .sharesHeld, .cost, .acquired')) recalc();
+  if (e.target.matches('.tickerCell')) refreshEmptyHint();
 });
 tbody.addEventListener('click', (e) => {
   if (e.target.classList.contains('maxbtn')) {
@@ -626,6 +657,162 @@ tbody.addEventListener('click', (e) => {
 
 document.getElementById('addRowBtn').addEventListener('click', () => addRow());
 document.getElementById('saleprice').addEventListener('input', recalc);
+
+// ---------------- Save / Restore lot list ----------------
+// Persists the FULL lot table — every row currently in #lotBody, regardless
+// of what ticker is typed in the filter box, and regardless of whether a row
+// came from a PDF scan or was added manually — plus the current ticker
+// filter and sale price, to a JSON file the user places themselves.
+//
+// Where supported (Chrome, Edge, and other Chromium-based browsers) this
+// uses the native File System Access API so a real OS save/open dialog lets
+// the user pick the exact folder and filename, and "Restore" opens that same
+// picker rather than an ad-hoc <input type=file>. Safari and Firefox don't
+// implement that API yet, so those fall back to a normal browser download
+// (goes to the default Downloads location, filename pre-filled) and a
+// hidden file-input click for restore — still fully functional, just without
+// a folder-choice dialog.
+const supportsFilePicker = !!(window.showSaveFilePicker && window.showOpenFilePicker);
+
+function collectLotsForSave(){
+  const lots = [];
+  document.querySelectorAll('#lotBody tr').forEach(tr => {
+    lots.push({
+      ticker: tr.querySelector('.tickerCell').value.trim().toUpperCase(),
+      acquired: tr.querySelector('.acquired').value,
+      shares: parseFloat(tr.querySelector('.sharesHeld').value) || 0,
+      cost: parseFloat(tr.querySelector('.cost').value) || 0,
+      sell: parseFloat(tr.querySelector('.shares').value) || 0
+    });
+  });
+  return lots;
+}
+
+function buildSavePayload(){
+  return {
+    savedAt: new Date().toISOString(),
+    ticker: tickerInput.value.trim().toUpperCase(),
+    saleprice: document.getElementById('saleprice').value || '',
+    lots: collectLotsForSave()
+  };
+}
+
+function suggestedFileName(payload){
+  // "Dot list" filename: every segment separated by a period, ending in a
+  // date + time-with-seconds stamp so repeated saves never collide.
+  const d = new Date(payload.savedAt);
+  const pad = n => String(n).padStart(2, '0');
+  const datePart = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const timePart = `${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+  const tickerPart = payload.ticker || 'all';
+  return `lot.list.${tickerPart}.${datePart}.${timePart}.json`;
+}
+
+async function saveViaPicker(payload){
+  const handle = await window.showSaveFilePicker({
+    suggestedName: suggestedFileName(payload),
+    types: [{ description: 'Lot list JSON', accept: {'application/json': ['.json']} }]
+  });
+  const writable = await handle.createWritable();
+  await writable.write(JSON.stringify(payload, null, 2));
+  await writable.close();
+}
+
+function saveViaDownload(payload){
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = suggestedFileName(payload);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('saveBtn').addEventListener('click', async () => {
+  const payload = buildSavePayload();
+  try {
+    if (supportsFilePicker){
+      await saveViaPicker(payload);
+    } else {
+      saveViaDownload(payload);
+    }
+    scanStatus.textContent = `Saved ${payload.lots.length} lot${payload.lots.length===1?'':'s'} to file.`;
+    scanStatus.className = 'status ok';
+  } catch (err){
+    if (err && err.name === 'AbortError') return; // user cancelled the dialog
+    console.error(err);
+    scanStatus.textContent = 'Could not save the lot list to a file.';
+    scanStatus.className = 'status err';
+  }
+});
+
+function applyRestoredData(data, sourceName){
+  if (!data || !Array.isArray(data.lots)) throw new Error('Missing lots array');
+
+  if (typeof data.ticker === 'string'){
+    tickerInput.value = data.ticker;
+    tickerInput.dispatchEvent(new Event('input'));
+  }
+  if (data.saleprice !== undefined && data.saleprice !== ''){
+    document.getElementById('saleprice').value = data.saleprice;
+  }
+
+  tbody.innerHTML = '';
+  data.lots.forEach(l => {
+    addRow({ ticker: l.ticker, acquired: l.acquired, shares: l.shares, cost: l.cost });
+    const tr = tbody.lastElementChild;
+    if (l.sell){
+      tr.querySelector('.shares').value = l.sell;
+    }
+  });
+  refreshEmptyHint();
+  recalc();
+  scanStatus.textContent = `Restored ${data.lots.length} lot${data.lots.length===1?'':'s'} from ${sourceName}.`;
+  scanStatus.className = 'status ok';
+}
+
+async function restoreViaPicker(){
+  const [handle] = await window.showOpenFilePicker({
+    types: [{ description: 'Lot list JSON', accept: {'application/json': ['.json']} }],
+    multiple: false
+  });
+  const file = await handle.getFile();
+  const text = await file.text();
+  applyRestoredData(JSON.parse(text), file.name);
+}
+
+const restoreInput = document.getElementById('restoreInput');
+restoreInput.addEventListener('change', async () => {
+  const file = restoreInput.files && restoreInput.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    applyRestoredData(JSON.parse(text), file.name);
+  } catch (err){
+    console.error(err);
+    scanStatus.textContent = `Could not restore lot list from ${file.name} \u2014 not a valid saved file.`;
+    scanStatus.className = 'status err';
+  } finally {
+    restoreInput.value = '';
+  }
+});
+
+document.getElementById('restoreBtn').addEventListener('click', async () => {
+  if (supportsFilePicker){
+    try {
+      await restoreViaPicker();
+    } catch (err){
+      if (err && err.name === 'AbortError') return; // user cancelled the dialog
+      console.error(err);
+      scanStatus.textContent = 'Could not restore the lot list from that file \u2014 not a valid saved file.';
+      scanStatus.className = 'status err';
+    }
+  } else {
+    restoreInput.click();
+  }
+});
 
 function recalc(){
   const price = parseFloat(document.getElementById('saleprice').value) || 0;
@@ -661,6 +848,11 @@ function recalc(){
     const gainCell = tr.querySelector('.gain');
     gainCell.textContent = fmtMoney(gain);
     gainCell.className = "gain " + (gain >= 0 ? "gain-pos" : "gain-neg");
+
+    // Totals only count rows currently visible under the ticker filter, so
+    // tax figures reflect the position you've filtered to \u2014 hidden rows
+    // for other tickers are still in the table (for Save) but not summed.
+    if (tr.style.display === 'none') return;
 
     if (term === "LT") {
       ltShares += qty; ltProceeds += proceeds; ltBasis += basis;
@@ -1063,8 +1255,7 @@ async function scanFilesForLots(files, ticker){
 
 scanBtn.addEventListener('click', async () => {
   const files = Array.from(pdfInput.files || []);
-  const ticker = tickerInput.value.trim(); // blank = every ticker in every PDF
-  const wantAll = ticker === '';
+  const requestedTicker = tickerInput.value.trim(); // filters the VIEW only \u2014 the scan itself always reads every ticker
 
   if (files.length === 0){
     scanStatus.textContent = 'Choose at least one PDF file first.';
@@ -1077,22 +1268,13 @@ scanBtn.addEventListener('click', async () => {
   scanStatus.className = 'status';
 
   try {
-    let { lots, sawTickerHeader } = await scanFilesForLots(files, ticker);
+    // Always scan for EVERY ticker in every PDF so the underlying lot list
+    // stays complete regardless of what's typed in the ticker box. Filtering
+    // to one ticker happens afterward, in the view, via refreshEmptyHint().
+    const { lots } = await scanFilesForLots(files, '');
     const fileWord = files.length === 1 ? 'PDF' : `${files.length} PDFs`;
 
-    let fellBackToAll = false;
-    if (!wantAll && lots.length === 0){
-      // Requested ticker matched nothing anywhere: alert the user, then fall
-      // back to showing every lot found in every PDF rather than an empty
-      // table.
-      window.alert(`No match for "${ticker.toUpperCase()}" in ${fileWord}. Showing all lots instead.`);
-      const allResult = await scanFilesForLots(files, '');
-      lots = allResult.lots;
-      fellBackToAll = true;
-    }
-
     if (lots.length === 0){
-      // Truly nothing extractable, even across every ticker.
       tbody.innerHTML = '';
       refreshEmptyHint();
       scanStatus.textContent = `No lot rows found anywhere in ${fileWord}. Add lots manually below.`;
@@ -1101,17 +1283,20 @@ scanBtn.addEventListener('click', async () => {
       tbody.innerHTML = '';
       lots.forEach(lot => addRow(lot));
       const tickerCount = new Set(lots.map(l => l.ticker).filter(Boolean)).size;
+      const upperRequested = requestedTicker.toUpperCase();
+      const matchesRequested = !upperRequested || lots.some(l => l.ticker.toUpperCase() === upperRequested);
 
-      if (fellBackToAll){
-        scanStatus.textContent = sawTickerHeader
-          ? `Found ${ticker.toUpperCase()} in ${fileWord}, but no per-lot rows underneath it \u2014 showing every lot from ${fileWord} instead (${lots.length} across ${tickerCount} ticker${tickerCount===1?'':'s'}). This position may be shown as a single aggregate line rather than expanded lots.`
-          : `No lots matched ${ticker.toUpperCase()} in ${fileWord} \u2014 showing every lot instead (${lots.length} across ${tickerCount} ticker${tickerCount===1?'':'s'}).`;
+      if (upperRequested && !matchesRequested){
+        window.alert(`No match for "${upperRequested}" in ${fileWord}. Showing every lot instead.`);
+        tickerInput.value = '';
+        tickerInput.dispatchEvent(new Event('input'));
+        scanStatus.textContent = `No lots matched ${upperRequested} \u2014 loaded all ${lots.length} lot${lots.length===1?'':'s'} across ${tickerCount} ticker${tickerCount===1?'':'s'} from ${fileWord} instead.`;
         scanStatus.className = 'status err';
-      } else if (wantAll){
-        scanStatus.textContent = `Found ${lots.length} lot${lots.length===1?'':'s'} across ${tickerCount} ticker${tickerCount===1?'':'s'} in ${fileWord}. Review extracted values before selling \u2014 parsing is best-effort.`;
+      } else if (upperRequested){
+        scanStatus.textContent = `Loaded ${lots.length} lot${lots.length===1?'':'s'} across ${tickerCount} ticker${tickerCount===1?'':'s'} from ${fileWord}; showing ${upperRequested} only \u2014 clear the ticker box to see the rest (they're still loaded).`;
         scanStatus.className = 'status ok';
       } else {
-        scanStatus.textContent = `Found ${lots.length} lot${lots.length===1?'':'s'} for ${ticker.toUpperCase()} in ${fileWord}. Review extracted values before selling \u2014 parsing is best-effort.`;
+        scanStatus.textContent = `Loaded ${lots.length} lot${lots.length===1?'':'s'} across ${tickerCount} ticker${tickerCount===1?'':'s'} from ${fileWord}. Review extracted values before selling \u2014 parsing is best-effort.`;
         scanStatus.className = 'status ok';
       }
     }

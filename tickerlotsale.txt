@@ -25,6 +25,12 @@ For long term sales
 	show WA tax liability factoring CG exemption
 	show NYS + NYC tax liability at highest bracket
 
+Saving Restore
+	scan PDFs for entire lot info
+	give user ability save and restore entire lot list (including manually added, not just ones listed under the ticker symbol) into a user specified file
+	provide user UI to decide where to save and retrieve file
+	file name should be dot-list with date and time stamp (including seconds)
+
 References
 	use reference html for prior example
 	check against any test PDF included
